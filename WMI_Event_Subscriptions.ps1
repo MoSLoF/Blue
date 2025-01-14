@@ -23,24 +23,6 @@ PS> .\WMI_Event_Subscriptions.ps1
 
 $outputDirectory = 'C:\BlueTeam'
 
-function Convert-ByteToString {
-    param (
-        [Parameter(Mandatory = $true)]
-        [byte[]] $Bytes
-    )
-
-    [System.Text.Encoding]::Unicode.GetString($Bytes)
-}
-
-function Convert-SidToString {
-    param (
-        [Parameter(Mandatory = $true)]
-        [byte[]] $SidBytes
-    )
-
-    (New-Object Security.Principal.SecurityIdentifier($SidBytes, 0)).Value
-}
-
 function Convert-SIDToUsername {
     param (
         [Parameter(Mandatory = $true)]
@@ -88,9 +70,15 @@ foreach ($binding in $filterToConsumerBindings) {
     $filter = $eventFilters | Where-Object { $_.__RELPATH -eq $binding.Filter }
     $consumer = $eventConsumers | Where-Object { $_.__RELPATH -eq $binding.Consumer }
 
-    $creatorSidString = if ($consumer.CreatorSID) { Convert-SidToString $consumer.CreatorSID } else { '-' }
+    $creatorSidString = if ($consumer.CreatorSID) { (New-Object Security.Principal.SecurityIdentifier($consumer.CreatorSID, 0)).Value } else { '-' }
     $username = if ($creatorSidString -ne '-') { Convert-SIDToUsername $creatorSidString } else { '-' }
     $consumerAction = Get-ConsumerAction -Consumer $consumer
+
+    $removeCommand = if ($filter -and $consumer) {
+        "Remove-WmiObject -Namespace root\Subscription -Filter '__RELPATH=$($binding.Filter)'"
+    } else {
+        "-"
+    }
 
     $subscription = [PSCustomObject]@{
         CreatorSID            = $creatorSidString
@@ -100,9 +88,12 @@ foreach ($binding in $filterToConsumerBindings) {
         ConsumerName          = $consumer.Name
         ConsumerType          = $consumer.__CLASS
         ConsumerAction        = $consumerAction
+        RemoveCommand         = $removeCommand
     }
 
     $subscriptionsData += $subscription
 }
 
-$subscriptionsData | Export-Csv -Path $outputCsvFilePath -NoTypeInformation -Force
+if ($subscriptionsData.Count -gt 0) {
+    $subscriptionsData | Export-Csv -Path $outputCsvFilePath -NoTypeInformation -Force
+}
